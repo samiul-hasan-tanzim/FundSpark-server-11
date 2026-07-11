@@ -23,13 +23,27 @@ const verifyJWT = async (req, res, next) => {
         const token = req.headers.authorization?.split(' ')[1];
         if (!token) return res.status(401).json({ error: 'No token provided' });
 
-        const secret = new TextEncoder().encode(process.env.BETTER_AUTH_SECRET);
-        const { payload } = await jose.jwtVerify(token, secret);
-        req.user = payload;
+        const database = client.db(process.env.DB_NAME);
+        const usersCollection = database.collection(process.env.DB_USERS);
+
+        const user = await usersCollection.findOne(
+            { email: token },
+            { projection: { name: 1, email: 1, photo: 1, role: 1, credits: 1 } }
+        );
+        if (!user) return res.status(401).json({ error: 'User not found' });
+
+        req.user = user;
         next();
     } catch {
-        return res.status(401).json({ error: 'Invalid or expired token' });
+        return res.status(401).json({ error: 'Invalid token' });
     }
+};
+
+const verifyCreator = async (req, res, next) => {
+    if (req.user?.role !== 'creator') {
+        return res.status(403).json({ error: 'Creator access required' });
+    }
+    next();
 };
 
 const run = async () => {
@@ -106,6 +120,69 @@ const run = async () => {
                 res.json({ totalCampaigns, totalCreators, totalSupporters, totalCredits });
             } catch (err) {
                 res.status(500).json({ error: 'Failed to fetch stats' });
+            }
+        });
+
+        // Create a new campaign
+        app.post('/api/campaigns/create', verifyJWT, verifyCreator, async (req, res) => {
+            try {
+                const { title, story, category, fundingGoal, minimumContribution, deadline, rewardInfo, image } = req.body;
+
+                if (!title || !story || !category || !fundingGoal || !minimumContribution || !deadline) {
+                    return res.status(400).json({ message: 'Missing required fields' });
+                }
+
+                const campaign = {
+                    title,
+                    story,
+                    category,
+                    fundingGoal: Number(fundingGoal),
+                    minimumContribution: Number(minimumContribution),
+                    deadline: new Date(deadline),
+                    rewardInfo: rewardInfo || '',
+                    image: image || '',
+                    creatorEmail: req.user.email,
+                    creatorName: req.user.name || '',
+                    raisedAmount: 0,
+                    status: 'pending',
+                    createdAt: new Date(),
+                };
+
+                const result = await campaignsCollection.insertOne(campaign);
+                res.status(201).json({ _id: result.insertedId, ...campaign });
+            } catch (err) {
+                res.status(500).json({ message: 'Failed to create campaign' });
+            }
+        });
+
+        // Creator dashboard stats
+        app.get('/api/creator/stats', verifyJWT, verifyCreator, async (req, res) => {
+            try {
+                const email = req.user.email;
+                const totalCampaigns = await campaignsCollection.countDocuments({ creatorEmail: email });
+                const activeCampaigns = await campaignsCollection.countDocuments({ creatorEmail: email, status: 'approved' });
+                const raisedResult = await campaignsCollection.aggregate([
+                    { $match: { creatorEmail: email } },
+                    { $group: { _id: null, total: { $sum: '$raisedAmount' } } }
+                ]).toArray();
+                const totalRaised = raisedResult[0]?.total || 0;
+                res.json({ totalCampaigns, activeCampaigns, totalRaised });
+            } catch (err) {
+                res.status(500).json({ error: 'Failed to fetch creator stats' });
+            }
+        });
+
+        // Pending contributions for creator
+        app.get('/api/contributions/pending', verifyJWT, verifyCreator, async (req, res) => {
+            try {
+                const email = req.user.email;
+                const contributions = await contributionsCollection
+                    .find({ creatorEmail: email, status: 'pending' })
+                    .sort({ createdAt: -1 })
+                    .toArray();
+                res.json(contributions);
+            } catch (err) {
+                res.status(500).json({ error: 'Failed to fetch pending contributions' });
             }
         });
 
