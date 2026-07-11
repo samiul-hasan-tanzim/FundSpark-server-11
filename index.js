@@ -3,7 +3,7 @@ const express = require('express');
 const app = express();
 const cors = require('cors');
 const jose = require('jose-cjs');
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const uri = process.env.MONGODB_URI;
 const port = process.env.PORT || 5000;
 
@@ -42,6 +42,13 @@ const verifyJWT = async (req, res, next) => {
 const verifyCreator = async (req, res, next) => {
     if (req.user?.role !== 'creator') {
         return res.status(403).json({ error: 'Creator access required' });
+    }
+    next();
+};
+
+const verifySupporter = async (req, res, next) => {
+    if (req.user?.role !== 'supporter') {
+        return res.status(403).json({ error: 'Supporter access required' });
     }
     next();
 };
@@ -183,6 +190,112 @@ const run = async () => {
                 res.json(contributions);
             } catch (err) {
                 res.status(500).json({ error: 'Failed to fetch pending contributions' });
+            }
+        });
+
+        // List all approved campaigns
+        app.get('/api/campaigns', async (req, res) => {
+            try {
+                const campaigns = await campaignsCollection
+                    .find({ status: 'approved', deadline: { $gt: new Date() } })
+                    .sort({ createdAt: -1 })
+                    .toArray();
+                res.json(campaigns);
+            } catch (err) {
+                res.status(500).json({ error: 'Failed to fetch campaigns' });
+            }
+        });
+
+        // Get single campaign by ID
+        app.get('/api/campaigns/:id', async (req, res) => {
+            try {
+                const campaign = await campaignsCollection.findOne({ _id: new ObjectId(req.params.id) });
+                if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
+                res.json(campaign);
+            } catch (err) {
+                res.status(500).json({ error: 'Failed to fetch campaign' });
+            }
+        });
+
+        // Submit a contribution
+        app.post('/api/campaigns/contribute', verifyJWT, verifySupporter, async (req, res) => {
+            try {
+                const { campaignId, contributionAmount } = req.body;
+
+                if (!campaignId || !contributionAmount) {
+                    return res.status(400).json({ message: 'Missing required fields' });
+                }
+
+                const campaign = await campaignsCollection.findOne({ _id: new ObjectId(campaignId) });
+                if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
+
+                const amount = Number(contributionAmount);
+                if (amount < campaign.minimumContribution) {
+                    return res.status(400).json({ message: `Minimum contribution is ${campaign.minimumContribution} credits` });
+                }
+
+                const user = await usersCollection.findOne({ email: req.user.email });
+                if (!user || user.credits < amount) {
+                    return res.status(400).json({ message: 'Insufficient credits' });
+                }
+
+                const contribution = {
+                    campaignId,
+                    campaignTitle: campaign.title,
+                    contributionAmount: amount,
+                    supporterEmail: req.user.email,
+                    supporterName: req.user.name || '',
+                    creatorEmail: campaign.creatorEmail,
+                    creatorName: campaign.creatorName || '',
+                    status: 'pending',
+                    createdAt: new Date(),
+                };
+
+                const result = await contributionsCollection.insertOne(contribution);
+
+                await usersCollection.updateOne(
+                    { email: req.user.email },
+                    { $inc: { credits: -amount } }
+                );
+
+                await notificationsCollection.insertOne({
+                    message: `${req.user.name || 'Someone'} contributed ${amount} credits to "${campaign.title}"`,
+                    toEmail: campaign.creatorEmail,
+                    actionRoute: `/dashboard/creator`,
+                    createdAt: new Date(),
+                });
+
+                res.status(201).json({ _id: result.insertedId, ...contribution });
+            } catch (err) {
+                res.status(500).json({ message: 'Failed to submit contribution' });
+            }
+        });
+
+        // Report a campaign
+        app.post('/api/reports/create', verifyJWT, async (req, res) => {
+            try {
+                const { campaignId, reason } = req.body;
+
+                if (!campaignId || !reason) {
+                    return res.status(400).json({ message: 'Missing required fields' });
+                }
+
+                const campaign = await campaignsCollection.findOne({ _id: new ObjectId(campaignId) });
+                if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
+
+                const report = {
+                    reporterName: req.user.name || '',
+                    reporterEmail: req.user.email,
+                    campaignId,
+                    campaignTitle: campaign.title,
+                    reason,
+                    createdAt: new Date(),
+                };
+
+                const result = await reportsCollection.insertOne(report);
+                res.status(201).json({ _id: result.insertedId, ...report });
+            } catch (err) {
+                res.status(500).json({ message: 'Failed to submit report' });
             }
         });
 
