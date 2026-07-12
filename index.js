@@ -278,6 +278,22 @@ const run = async () => {
             }
         });
 
+        // Admin: platform stats
+        app.get('/api/admin/stats', verifyJWT, verifyAdmin, async (req, res) => {
+            try {
+                const totalSupporters = await usersCollection.countDocuments({ role: 'supporter' });
+                const totalCreators = await usersCollection.countDocuments({ role: 'creator' });
+                const creditsResult = await usersCollection.aggregate([
+                    { $group: { _id: null, total: { $sum: '$credits' } } }
+                ]).toArray();
+                const totalCredits = creditsResult[0]?.total || 0;
+                const totalPayments = await paymentsCollection.countDocuments();
+                res.json({ totalSupporters, totalCreators, totalCredits, totalPayments });
+            } catch (err) {
+                res.status(500).json({ error: 'Failed to fetch admin stats' });
+            }
+        });
+
         // Admin: get pending campaigns
         app.get('/api/admin/campaigns/pending', verifyJWT, verifyAdmin, async (req, res) => {
             try {
