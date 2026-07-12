@@ -298,6 +298,9 @@ const run = async () => {
                 if (!['supporter', 'creator', 'admin'].includes(role)) {
                     return res.status(400).json({ message: 'Invalid role' });
                 }
+                if (email === 'admin@admin.com') {
+                    return res.status(403).json({ message: 'Cannot change role of super admin' });
+                }
                 const result = await usersCollection.updateOne({ email }, { $set: { role } });
                 if (result.matchedCount === 0) return res.status(404).json({ error: 'User not found' });
                 res.json({ message: 'Role updated' });
@@ -311,6 +314,9 @@ const run = async () => {
             try {
                 const { email } = req.body;
                 if (!email) return res.status(400).json({ message: 'Email required' });
+                if (email === 'admin@admin.com') {
+                    return res.status(403).json({ message: 'Cannot remove super admin' });
+                }
                 const result = await usersCollection.deleteOne({ email });
                 if (result.deletedCount === 0) return res.status(404).json({ error: 'User not found' });
                 res.json({ message: 'User removed' });
