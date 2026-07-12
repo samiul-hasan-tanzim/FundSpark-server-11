@@ -514,6 +514,7 @@ const run = async () => {
 
                 res.json({ url: session.url });
             } catch (err) {
+                console.error('Stripe checkout error:', err);
                 res.status(500).json({ message: 'Failed to create checkout session' });
             }
         });
