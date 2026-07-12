@@ -745,6 +745,37 @@ app.get('/api/payments/success', async (req, res) => {
     }
 });
 
+// Payment / withdrawal history for both supporters and creators
+app.get('/api/payments/history', verifyJWT, async (req, res) => {
+    try {
+        const { paymentsCollection, withdrawalsCollection } = await getCollections();
+        const email = req.user.email;
+
+        if (req.user.role === 'creator') {
+            const withdrawals = await withdrawalsCollection
+                .find({ creatorEmail: email, status: 'approved' })
+                .sort({ createdAt: -1 })
+                .toArray();
+            const payments = withdrawals.map(w => ({
+                _id: w._id,
+                credits: w.amount,
+                amount: w.dollarValue,
+                paymentMethod: 'Withdrawal',
+                createdAt: w.createdAt,
+            }));
+            return res.json({ payments });
+        }
+
+        const data = await paymentsCollection
+            .find({ userEmail: email })
+            .sort({ createdAt: -1 })
+            .toArray();
+        res.json({ payments: data });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch history' });
+    }
+});
+
 module.exports = app;
 
 if (!process.env.VERCEL) {
