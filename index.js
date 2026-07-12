@@ -180,6 +180,38 @@ app.post('/api/campaigns/create', verifyJWT, verifyCreator, async (req, res) => 
     }
 });
 
+// Update a campaign
+app.put('/api/campaigns/update/:id', verifyJWT, verifyCreator, async (req, res) => {
+    try {
+        const { campaignsCollection } = await getCollections();
+        const { title, story, category, fundingGoal, minimumContribution, deadline, rewardInfo, image } = req.body;
+
+        const campaign = await campaignsCollection.findOne({ _id: new ObjectId(req.params.id) });
+        if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
+        if (campaign.creatorEmail !== req.user.email) return res.status(403).json({ error: 'Not your campaign' });
+
+        const update = {};
+        if (title) update.title = title;
+        if (story) update.story = story;
+        if (category) update.category = category;
+        if (fundingGoal) update.fundingGoal = Number(fundingGoal);
+        if (minimumContribution) update.minimumContribution = Number(minimumContribution);
+        if (deadline) update.deadline = new Date(deadline);
+        if (rewardInfo !== undefined) update.rewardInfo = rewardInfo;
+        if (image !== undefined) update.image = image;
+
+        await campaignsCollection.updateOne(
+            { _id: new ObjectId(req.params.id) },
+            { $set: update }
+        );
+
+        const updated = await campaignsCollection.findOne({ _id: new ObjectId(req.params.id) });
+        res.json(updated);
+    } catch (err) {
+        res.status(500).json({ message: 'Failed to update campaign' });
+    }
+});
+
 // Get creator's own campaigns
 app.get('/api/campaigns/my', verifyJWT, verifyCreator, async (req, res) => {
     try {
