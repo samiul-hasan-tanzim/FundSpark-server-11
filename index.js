@@ -213,6 +213,32 @@ app.get('/api/contributions/pending', verifyJWT, verifyCreator, async (req, res)
     }
 });
 
+// Get my contributions (for supporter dashboard)
+app.get('/api/contributions/my', verifyJWT, async (req, res) => {
+    try {
+        const { contributionsCollection } = await getCollections();
+        const email = req.user.email;
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const skip = (page - 1) * limit;
+
+        const total = await contributionsCollection.countDocuments({ supporterEmail: email });
+        const contributions = await contributionsCollection
+            .find({ supporterEmail: email })
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .toArray();
+
+        res.json({
+            contributions,
+            totalPages: Math.ceil(total / limit) || 1,
+        });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch contributions' });
+    }
+});
+
 // List all approved campaigns
 app.get('/api/campaigns', async (req, res) => {
     try {
