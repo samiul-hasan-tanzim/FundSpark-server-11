@@ -166,7 +166,7 @@ app.get('/api/stats', async (req, res) => {
 app.post('/api/campaigns/create', verifyJWT, verifyCreator, async (req, res) => {
     try {
         const { campaignsCollection } = await getCollections();
-        const { title, story, category, fundingGoal, minimumContribution, deadline, rewardInfo, image } = req.body;
+        const { title, story, category, fundingGoal, minimumContribution, deadline, rewardInfo, image, images } = req.body;
 
         if (!title || !story || !category || !fundingGoal || !minimumContribution || !deadline) {
             return res.status(400).json({ message: 'Missing required fields' });
@@ -181,6 +181,7 @@ app.post('/api/campaigns/create', verifyJWT, verifyCreator, async (req, res) => 
             deadline: new Date(deadline),
             rewardInfo: rewardInfo || '',
             image: image || '',
+            images: images || [],
             creatorEmail: req.user.email,
             creatorName: req.user.name || '',
             raisedAmount: 0,
@@ -199,7 +200,7 @@ app.post('/api/campaigns/create', verifyJWT, verifyCreator, async (req, res) => 
 app.put('/api/campaigns/update/:id', verifyJWT, verifyCreator, async (req, res) => {
     try {
         const { campaignsCollection } = await getCollections();
-        const { title, story, category, fundingGoal, minimumContribution, deadline, rewardInfo, image } = req.body;
+        const { title, story, category, fundingGoal, minimumContribution, deadline, rewardInfo, image, images } = req.body;
 
         const campaign = await campaignsCollection.findOne({ _id: new ObjectId(req.params.id) });
         if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
@@ -214,6 +215,7 @@ app.put('/api/campaigns/update/:id', verifyJWT, verifyCreator, async (req, res) 
         if (deadline) update.deadline = new Date(deadline);
         if (rewardInfo !== undefined) update.rewardInfo = rewardInfo;
         if (image !== undefined) update.image = image;
+        if (images !== undefined) update.images = images;
 
         await campaignsCollection.updateOne(
             { _id: new ObjectId(req.params.id) },
