@@ -53,6 +53,13 @@ const verifySupporter = async (req, res, next) => {
     next();
 };
 
+const verifyAdmin = async (req, res, next) => {
+    if (req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Admin access required' });
+    }
+    next();
+};
+
 const run = async () => {
     try {
         const database = client.db(process.env.DB_NAME);
@@ -268,6 +275,73 @@ const run = async () => {
                 res.status(201).json({ _id: result.insertedId, ...contribution });
             } catch (err) {
                 res.status(500).json({ message: 'Failed to submit contribution' });
+            }
+        });
+
+        // Admin: get pending campaigns
+        app.get('/api/admin/campaigns/pending', verifyJWT, verifyAdmin, async (req, res) => {
+            try {
+                const campaigns = await campaignsCollection
+                    .find({ status: 'pending' })
+                    .sort({ createdAt: -1 })
+                    .toArray();
+                res.json(campaigns);
+            } catch (err) {
+                res.status(500).json({ error: 'Failed to fetch pending campaigns' });
+            }
+        });
+
+        // Admin: approve campaign
+        app.put('/api/admin/campaigns/approve', verifyJWT, verifyAdmin, async (req, res) => {
+            try {
+                const { campaignId } = req.body;
+                if (!campaignId) return res.status(400).json({ message: 'Campaign ID required' });
+
+                const campaign = await campaignsCollection.findOne({ _id: new ObjectId(campaignId) });
+                if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
+
+                await campaignsCollection.updateOne(
+                    { _id: new ObjectId(campaignId) },
+                    { $set: { status: 'approved' } }
+                );
+
+                await notificationsCollection.insertOne({
+                    message: `Your campaign "${campaign.title}" has been approved and is now live!`,
+                    toEmail: campaign.creatorEmail,
+                    actionRoute: `/dashboard/creator`,
+                    createdAt: new Date(),
+                });
+
+                res.json({ message: 'Campaign approved' });
+            } catch (err) {
+                res.status(500).json({ message: 'Failed to approve campaign' });
+            }
+        });
+
+        // Admin: reject campaign
+        app.put('/api/admin/campaigns/reject', verifyJWT, verifyAdmin, async (req, res) => {
+            try {
+                const { campaignId } = req.body;
+                if (!campaignId) return res.status(400).json({ message: 'Campaign ID required' });
+
+                const campaign = await campaignsCollection.findOne({ _id: new ObjectId(campaignId) });
+                if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
+
+                await campaignsCollection.updateOne(
+                    { _id: new ObjectId(campaignId) },
+                    { $set: { status: 'rejected' } }
+                );
+
+                await notificationsCollection.insertOne({
+                    message: `Your campaign "${campaign.title}" has been rejected.`,
+                    toEmail: campaign.creatorEmail,
+                    actionRoute: `/dashboard/creator`,
+                    createdAt: new Date(),
+                });
+
+                res.json({ message: 'Campaign rejected' });
+            } catch (err) {
+                res.status(500).json({ message: 'Failed to reject campaign' });
             }
         });
 
