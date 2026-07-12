@@ -279,6 +279,85 @@ app.put('/api/contributions/status', verifyJWT, verifyCreator, async (req, res) 
     }
 });
 
+// Creator: submit withdrawal request
+app.post('/api/withdrawals/create', verifyJWT, verifyCreator, async (req, res) => {
+    try {
+        const { withdrawalsCollection, campaignsCollection } = await getCollections();
+        const { amount } = req.body;
+
+        if (!amount || amount < 200) {
+            return res.status(400).json({ message: 'Minimum withdrawal is 200 credits' });
+        }
+
+        const raisedResult = await campaignsCollection.aggregate([
+            { $match: { creatorEmail: req.user.email } },
+            { $group: { _id: null, total: { $sum: '$raisedAmount' } } }
+        ]).toArray();
+        const totalRaised = raisedResult[0]?.total || 0;
+
+        const withdrawnResult = await withdrawalsCollection.aggregate([
+            { $match: { creatorEmail: req.user.email, status: 'approved' } },
+            { $group: { _id: null, total: { $sum: '$amount' } } }
+        ]).toArray();
+        const totalWithdrawn = withdrawnResult[0]?.total || 0;
+
+        const available = totalRaised - totalWithdrawn;
+        if (amount > available) {
+            return res.status(400).json({ message: `Insufficient balance. Available: ${available} credits` });
+        }
+
+        const dollarValue = (amount / 20).toFixed(2);
+
+        const withdrawal = {
+            creatorEmail: req.user.email,
+            creatorName: req.user.name || '',
+            amount,
+            dollarValue,
+            status: 'pending',
+            createdAt: new Date(),
+        };
+
+        const result = await withdrawalsCollection.insertOne(withdrawal);
+        res.status(201).json({ _id: result.insertedId, ...withdrawal });
+    } catch (err) {
+        res.status(500).json({ message: 'Failed to create withdrawal request' });
+    }
+});
+
+// Creator: get my withdrawal requests
+app.get('/api/withdrawals/my', verifyJWT, verifyCreator, async (req, res) => {
+    try {
+        const { withdrawalsCollection, campaignsCollection } = await getCollections();
+        const email = req.user.email;
+
+        const withdrawals = await withdrawalsCollection
+            .find({ creatorEmail: email })
+            .sort({ createdAt: -1 })
+            .toArray();
+
+        const raisedResult = await campaignsCollection.aggregate([
+            { $match: { creatorEmail: email } },
+            { $group: { _id: null, total: { $sum: '$raisedAmount' } } }
+        ]).toArray();
+        const totalRaised = raisedResult[0]?.total || 0;
+
+        const withdrawnResult = await withdrawalsCollection.aggregate([
+            { $match: { creatorEmail: email, status: 'approved' } },
+            { $group: { _id: null, total: { $sum: '$amount' } } }
+        ]).toArray();
+        const totalWithdrawn = withdrawnResult[0]?.total || 0;
+
+        res.json({
+            withdrawals,
+            totalRaised,
+            totalWithdrawn,
+            available: totalRaised - totalWithdrawn,
+        });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch withdrawals' });
+    }
+});
+
 // Get my contributions (for supporter dashboard)
 app.get('/api/contributions/my', verifyJWT, async (req, res) => {
     try {
