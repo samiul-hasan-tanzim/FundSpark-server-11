@@ -545,6 +545,9 @@ app.put('/api/admin/users/role', verifyJWT, verifyAdmin, async (req, res) => {
         if (!['supporter', 'creator', 'admin'].includes(role)) {
             return res.status(400).json({ message: 'Invalid role' });
         }
+        if (email === req.user.email) {
+            return res.status(403).json({ message: 'You cannot change your own role' });
+        }
         if (email === 'admin@admin.com') {
             return res.status(403).json({ message: 'Cannot change role of super admin' });
         }
@@ -562,6 +565,9 @@ app.delete('/api/admin/users/remove', verifyJWT, verifyAdmin, async (req, res) =
         const { usersCollection } = await getCollections();
         const { email } = req.body;
         if (!email) return res.status(400).json({ message: 'Email required' });
+        if (email === req.user.email) {
+            return res.status(403).json({ message: 'You cannot delete yourself' });
+        }
         if (email === 'admin@admin.com') {
             return res.status(403).json({ message: 'Cannot remove super admin' });
         }
