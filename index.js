@@ -278,6 +278,47 @@ const run = async () => {
             }
         });
 
+        // Admin: get all users
+        app.get('/api/admin/users', verifyJWT, verifyAdmin, async (req, res) => {
+            try {
+                const users = await usersCollection.find({})
+                    .project({ name: 1, email: 1, photo: 1, role: 1, credits: 1 })
+                    .toArray();
+                res.json(users);
+            } catch (err) {
+                res.status(500).json({ error: 'Failed to fetch users' });
+            }
+        });
+
+        // Admin: update user role
+        app.put('/api/admin/users/role', verifyJWT, verifyAdmin, async (req, res) => {
+            try {
+                const { email, role } = req.body;
+                if (!email || !role) return res.status(400).json({ message: 'Email and role required' });
+                if (!['supporter', 'creator', 'admin'].includes(role)) {
+                    return res.status(400).json({ message: 'Invalid role' });
+                }
+                const result = await usersCollection.updateOne({ email }, { $set: { role } });
+                if (result.matchedCount === 0) return res.status(404).json({ error: 'User not found' });
+                res.json({ message: 'Role updated' });
+            } catch (err) {
+                res.status(500).json({ message: 'Failed to update role' });
+            }
+        });
+
+        // Admin: remove user
+        app.delete('/api/admin/users/remove', verifyJWT, verifyAdmin, async (req, res) => {
+            try {
+                const { email } = req.body;
+                if (!email) return res.status(400).json({ message: 'Email required' });
+                const result = await usersCollection.deleteOne({ email });
+                if (result.deletedCount === 0) return res.status(404).json({ error: 'User not found' });
+                res.json({ message: 'User removed' });
+            } catch (err) {
+                res.status(500).json({ message: 'Failed to remove user' });
+            }
+        });
+
         // Admin: platform stats
         app.get('/api/admin/stats', verifyJWT, verifyAdmin, async (req, res) => {
             try {
