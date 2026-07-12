@@ -180,6 +180,20 @@ app.post('/api/campaigns/create', verifyJWT, verifyCreator, async (req, res) => 
     }
 });
 
+// Get creator's own campaigns
+app.get('/api/campaigns/my', verifyJWT, verifyCreator, async (req, res) => {
+    try {
+        const { campaignsCollection } = await getCollections();
+        const campaigns = await campaignsCollection
+            .find({ creatorEmail: req.user.email })
+            .sort({ createdAt: -1 })
+            .toArray();
+        res.json(campaigns);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch campaigns' });
+    }
+});
+
 // Creator dashboard stats
 app.get('/api/creator/stats', verifyJWT, verifyCreator, async (req, res) => {
     try {
