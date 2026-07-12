@@ -238,8 +238,17 @@ app.put('/api/contributions/status', verifyJWT, verifyCreator, async (req, res) 
             { $set: { status } }
         );
 
+        if (status === 'rejected') {
+            await usersCollection.updateOne(
+                { email: contribution.supporterEmail },
+                { $inc: { credits: contribution.contributionAmount } }
+            );
+        }
+
         await notificationsCollection.insertOne({
-            message: `Your contribution of ${contribution.contributionAmount} credits to "${contribution.campaignTitle}" has been ${status}.`,
+            message: status === 'approved'
+                ? `Your contribution of ${contribution.contributionAmount} credits to "${contribution.campaignTitle}" has been approved!`
+                : `Your contribution of ${contribution.contributionAmount} credits to "${contribution.campaignTitle}" has been rejected. ${contribution.contributionAmount} credits have been refunded.`,
             toEmail: contribution.supporterEmail,
             actionRoute: `/dashboard/supporter/my-contributions`,
             createdAt: new Date(),
