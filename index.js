@@ -303,6 +303,7 @@ app.put('/api/contributions/status', verifyJWT, verifyCreator, async (req, res) 
             toEmail: contribution.supporterEmail,
             actionRoute: `/dashboard/supporter/my-contributions`,
             createdAt: new Date(),
+            read: false,
         });
 
         res.json({ message: `Contribution ${status}` });
@@ -489,6 +490,7 @@ app.post('/api/campaigns/contribute', verifyJWT, verifySupporter, async (req, re
             toEmail: campaign.creatorEmail,
             actionRoute: `/dashboard/creator`,
             createdAt: new Date(),
+            read: false,
         });
 
         res.status(201).json({ _id: result.insertedId, ...contribution });
@@ -598,6 +600,7 @@ app.put('/api/admin/campaigns/approve', verifyJWT, verifyAdmin, async (req, res)
             toEmail: campaign.creatorEmail,
             actionRoute: `/dashboard/creator`,
             createdAt: new Date(),
+            read: false,
         });
 
         res.json({ message: 'Campaign approved' });
@@ -670,6 +673,7 @@ app.put('/api/admin/campaigns/reject', verifyJWT, verifyAdmin, async (req, res) 
             toEmail: campaign.creatorEmail,
             actionRoute: `/dashboard/creator`,
             createdAt: new Date(),
+            read: false,
         });
 
         res.json({ message: 'Campaign rejected' });
@@ -726,6 +730,7 @@ app.put('/api/admin/withdrawals/approve', verifyJWT, verifyAdmin, async (req, re
             toEmail: withdrawal.creatorEmail,
             actionRoute: `/dashboard/creator/payment-history`,
             createdAt: new Date(),
+            read: false,
         });
 
         res.json({ message: 'Withdrawal approved' });
@@ -780,6 +785,7 @@ app.put('/api/admin/withdrawals/reject', verifyJWT, verifyAdmin, async (req, res
             toEmail: withdrawal.creatorEmail,
             actionRoute: `/dashboard/creator/withdrawals`,
             createdAt: new Date(),
+            read: false,
         });
 
         res.json({ message: 'Withdrawal rejected' });
@@ -915,6 +921,53 @@ app.get('/api/payments/history', verifyJWT, async (req, res) => {
         res.json({ payments: data });
     } catch (err) {
         res.status(500).json({ error: 'Failed to fetch history' });
+    }
+});
+
+// Get notifications for the current user
+app.get('/api/notifications', verifyJWT, async (req, res) => {
+    try {
+        const { notificationsCollection } = await getCollections();
+        const email = req.user.email;
+        const notifications = await notificationsCollection
+            .find({ toEmail: email })
+            .sort({ createdAt: -1 })
+            .limit(50)
+            .toArray();
+        const unreadCount = await notificationsCollection.countDocuments({ toEmail: email, read: false });
+        res.json({ notifications, unreadCount });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch notifications' });
+    }
+});
+
+// Mark a single notification as read
+app.put('/api/notifications/:id/read', verifyJWT, async (req, res) => {
+    try {
+        const { notificationsCollection } = await getCollections();
+        const { id } = req.params;
+        const result = await notificationsCollection.updateOne(
+            { _id: new ObjectId(id), toEmail: req.user.email },
+            { $set: { read: true } }
+        );
+        if (result.matchedCount === 0) return res.status(404).json({ error: 'Notification not found' });
+        res.json({ message: 'Marked as read' });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to mark notification as read' });
+    }
+});
+
+// Mark all notifications as read for the current user
+app.put('/api/notifications/read-all', verifyJWT, async (req, res) => {
+    try {
+        const { notificationsCollection } = await getCollections();
+        await notificationsCollection.updateMany(
+            { toEmail: req.user.email, read: false },
+            { $set: { read: true } }
+        );
+        res.json({ message: 'All notifications marked as read' });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to mark notifications as read' });
     }
 });
 
