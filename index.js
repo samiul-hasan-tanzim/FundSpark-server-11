@@ -646,6 +646,102 @@ app.put('/api/admin/campaigns/reject', verifyJWT, verifyAdmin, async (req, res) 
     }
 });
 
+// Admin: get pending withdrawal requests
+app.get('/api/admin/withdrawals/pending', verifyJWT, verifyAdmin, async (req, res) => {
+    try {
+        const { withdrawalsCollection } = await getCollections();
+        const withdrawals = await withdrawalsCollection
+            .find({ status: 'pending' })
+            .sort({ createdAt: -1 })
+            .toArray();
+        res.json(withdrawals);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch withdrawals' });
+    }
+});
+
+// Admin: approve withdrawal
+app.put('/api/admin/withdrawals/approve', verifyJWT, verifyAdmin, async (req, res) => {
+    try {
+        const { withdrawalsCollection, notificationsCollection } = await getCollections();
+        const { withdrawalId } = req.body;
+        if (!withdrawalId) return res.status(400).json({ message: 'Withdrawal ID required' });
+
+        const withdrawal = await withdrawalsCollection.findOne({ _id: new ObjectId(withdrawalId) });
+        if (!withdrawal) return res.status(404).json({ error: 'Withdrawal not found' });
+
+        await withdrawalsCollection.updateOne(
+            { _id: new ObjectId(withdrawalId) },
+            { $set: { status: 'approved' } }
+        );
+
+        await notificationsCollection.insertOne({
+            message: `Your withdrawal of ${withdrawal.amount} credits ($${withdrawal.dollarValue}) has been approved and will be processed.`,
+            toEmail: withdrawal.creatorEmail,
+            actionRoute: `/dashboard/creator/payment-history`,
+            createdAt: new Date(),
+        });
+
+        res.json({ message: 'Withdrawal approved' });
+    } catch (err) {
+        res.status(500).json({ message: 'Failed to approve withdrawal' });
+    }
+});
+
+// Admin: get all reports
+app.get('/api/admin/reports', verifyJWT, verifyAdmin, async (req, res) => {
+    try {
+        const { reportsCollection } = await getCollections();
+        const reports = await reportsCollection
+            .find({})
+            .sort({ createdAt: -1 })
+            .toArray();
+        res.json(reports);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch reports' });
+    }
+});
+
+// Admin: delete report
+app.delete('/api/admin/reports/remove/:id', verifyJWT, verifyAdmin, async (req, res) => {
+    try {
+        const { reportsCollection } = await getCollections();
+        const result = await reportsCollection.deleteOne({ _id: new ObjectId(req.params.id) });
+        if (result.deletedCount === 0) return res.status(404).json({ error: 'Report not found' });
+        res.json({ message: 'Report removed' });
+    } catch (err) {
+        res.status(500).json({ message: 'Failed to remove report' });
+    }
+});
+
+// Admin: reject withdrawal
+app.put('/api/admin/withdrawals/reject', verifyJWT, verifyAdmin, async (req, res) => {
+    try {
+        const { withdrawalsCollection, notificationsCollection } = await getCollections();
+        const { withdrawalId } = req.body;
+        if (!withdrawalId) return res.status(400).json({ message: 'Withdrawal ID required' });
+
+        const withdrawal = await withdrawalsCollection.findOne({ _id: new ObjectId(withdrawalId) });
+        if (!withdrawal) return res.status(404).json({ error: 'Withdrawal not found' });
+
+        await withdrawalsCollection.updateOne(
+            { _id: new ObjectId(withdrawalId) },
+            { $set: { status: 'rejected' } }
+        );
+
+        await notificationsCollection.insertOne({
+            message: `Your withdrawal of ${withdrawal.amount} credits has been rejected.`,
+            toEmail: withdrawal.creatorEmail,
+            actionRoute: `/dashboard/creator/withdrawals`,
+            createdAt: new Date(),
+        });
+
+        res.json({ message: 'Withdrawal rejected' });
+    } catch (err) {
+        res.status(500).json({ message: 'Failed to reject withdrawal' });
+    }
+});
+
 // Report a campaign
 app.post('/api/reports/create', verifyJWT, async (req, res) => {
     try {
