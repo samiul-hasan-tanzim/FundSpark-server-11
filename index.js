@@ -389,7 +389,7 @@ app.get('/api/campaigns', async (req, res) => {
     try {
         const { campaignsCollection } = await getCollections();
         const campaigns = await campaignsCollection
-            .find({ status: 'approved', deadline: { $gt: new Date() } })
+            .find({ status: 'approved' })
             .sort({ createdAt: -1 })
             .toArray();
         res.json(campaigns);
