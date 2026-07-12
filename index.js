@@ -265,6 +265,11 @@ const run = async () => {
                     { $inc: { credits: -amount } }
                 );
 
+                await campaignsCollection.updateOne(
+                    { _id: new ObjectId(campaignId) },
+                    { $inc: { raisedAmount: amount } }
+                );
+
                 await notificationsCollection.insertOne({
                     message: `${req.user.name || 'Someone'} contributed ${amount} credits to "${campaign.title}"`,
                     toEmail: campaign.creatorEmail,
