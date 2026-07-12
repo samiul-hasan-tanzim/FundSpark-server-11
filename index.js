@@ -381,6 +381,48 @@ const run = async () => {
             }
         });
 
+        // Admin: get all campaigns
+        app.get('/api/admin/campaigns/all', verifyJWT, verifyAdmin, async (req, res) => {
+            try {
+                const campaigns = await campaignsCollection
+                    .find({})
+                    .sort({ createdAt: -1 })
+                    .toArray();
+                res.json(campaigns);
+            } catch (err) {
+                res.status(500).json({ error: 'Failed to fetch campaigns' });
+            }
+        });
+
+        // Admin: delete campaign
+        app.delete('/api/admin/campaigns/delete', verifyJWT, verifyAdmin, async (req, res) => {
+            try {
+                const { campaignId } = req.body;
+                if (!campaignId) return res.status(400).json({ message: 'Campaign ID required' });
+
+                const campaign = await campaignsCollection.findOne({ _id: new ObjectId(campaignId) });
+                if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
+
+                const approvedContributions = await contributionsCollection
+                    .find({ campaignId, status: 'approved' })
+                    .toArray();
+
+                for (const c of approvedContributions) {
+                    await usersCollection.updateOne(
+                        { email: c.supporterEmail },
+                        { $inc: { credits: c.contributionAmount } }
+                    );
+                }
+
+                await contributionsCollection.deleteMany({ campaignId });
+                await campaignsCollection.deleteOne({ _id: new ObjectId(campaignId) });
+
+                res.json({ message: 'Campaign deleted' });
+            } catch (err) {
+                res.status(500).json({ message: 'Failed to delete campaign' });
+            }
+        });
+
         // Admin: reject campaign
         app.put('/api/admin/campaigns/reject', verifyJWT, verifyAdmin, async (req, res) => {
             try {
