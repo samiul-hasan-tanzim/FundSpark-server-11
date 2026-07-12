@@ -216,7 +216,7 @@ app.get('/api/contributions/pending', verifyJWT, verifyCreator, async (req, res)
 // Creator: approve or reject a pending contribution
 app.put('/api/contributions/status', verifyJWT, verifyCreator, async (req, res) => {
     try {
-        const { contributionsCollection, notificationsCollection, usersCollection } = await getCollections();
+        const { contributionsCollection, notificationsCollection, usersCollection, campaignsCollection } = await getCollections();
         const { contributionId, status } = req.body;
 
         if (!contributionId || !status) {
@@ -238,7 +238,12 @@ app.put('/api/contributions/status', verifyJWT, verifyCreator, async (req, res) 
             { $set: { status } }
         );
 
-        if (status === 'rejected') {
+        if (status === 'approved') {
+            await campaignsCollection.updateOne(
+                { _id: new ObjectId(contribution.campaignId) },
+                { $inc: { raisedAmount: contribution.contributionAmount } }
+            );
+        } else {
             await usersCollection.updateOne(
                 { email: contribution.supporterEmail },
                 { $inc: { credits: contribution.contributionAmount } }
@@ -352,11 +357,6 @@ app.post('/api/campaigns/contribute', verifyJWT, verifySupporter, async (req, re
         await usersCollection.updateOne(
             { email: req.user.email },
             { $inc: { credits: -amount } }
-        );
-
-        await campaignsCollection.updateOne(
-            { _id: new ObjectId(campaignId) },
-            { $inc: { raisedAmount: amount } }
         );
 
         await notificationsCollection.insertOne({
