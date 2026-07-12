@@ -3,6 +3,7 @@ const express = require('express');
 const app = express();
 const cors = require('cors');
 const jose = require('jose-cjs');
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const uri = process.env.MONGODB_URI;
 const port = process.env.PORT || 5000;
@@ -480,6 +481,74 @@ const run = async () => {
                 res.status(201).json({ _id: result.insertedId, ...report });
             } catch (err) {
                 res.status(500).json({ message: 'Failed to submit report' });
+            }
+        });
+
+        // Create Stripe checkout session
+        app.post('/api/payments/create-checkout', verifyJWT, async (req, res) => {
+            try {
+                const { credits, amount } = req.body;
+                if (!credits || !amount) {
+                    return res.status(400).json({ message: 'Credits and amount required' });
+                }
+
+                const session = await stripe.checkout.sessions.create({
+                    payment_method_types: ['card'],
+                    mode: 'payment',
+                    line_items: [{
+                        price_data: {
+                            currency: 'usd',
+                            product_data: { name: `${credits} FundSpark Credits` },
+                            unit_amount: amount * 100,
+                        },
+                        quantity: 1,
+                    }],
+                    metadata: {
+                        email: req.user.email,
+                        credits: String(credits),
+                        amount: String(amount),
+                    },
+                    success_url: `${process.env.NEXT_PUBLIC_SERVER_URL}/api/payments/success?session_id={CHECKOUT_SESSION_ID}`,
+                    cancel_url: `${process.env.NEXT_PUBLIC_CLIENT_URL}/dashboard/supporter/purchase-credits?cancelled=true`,
+                });
+
+                res.json({ url: session.url });
+            } catch (err) {
+                res.status(500).json({ message: 'Failed to create checkout session' });
+            }
+        });
+
+        // Stripe payment success handler
+        app.get('/api/payments/success', async (req, res) => {
+            try {
+                const { session_id } = req.query;
+                if (!session_id) return res.redirect(`${process.env.NEXT_PUBLIC_CLIENT_URL}/dashboard/supporter/purchase-credits?error=missing_session`);
+
+                const session = await stripe.checkout.sessions.retrieve(session_id);
+
+                if (session.payment_status !== 'paid') {
+                    return res.redirect(`${process.env.NEXT_PUBLIC_CLIENT_URL}/dashboard/supporter/purchase-credits?error=not_paid`);
+                }
+
+                const { email, credits, amount } = session.metadata;
+
+                await usersCollection.updateOne(
+                    { email },
+                    { $inc: { credits: parseInt(credits) } }
+                );
+
+                await paymentsCollection.insertOne({
+                    userEmail: email,
+                    credits: parseInt(credits),
+                    amount: parseFloat(amount),
+                    paymentMethod: 'stripe',
+                    stripeSessionId: session_id,
+                    createdAt: new Date(),
+                });
+
+                res.redirect(`${process.env.NEXT_PUBLIC_CLIENT_URL}/dashboard/supporter/purchase-credits?success=true&credits=${credits}`);
+            } catch (err) {
+                res.redirect(`${process.env.NEXT_PUBLIC_CLIENT_URL}/dashboard/supporter/purchase-credits?error=server_error`);
             }
         });
 
