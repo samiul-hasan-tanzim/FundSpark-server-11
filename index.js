@@ -213,6 +213,44 @@ app.get('/api/contributions/pending', verifyJWT, verifyCreator, async (req, res)
     }
 });
 
+// Creator: approve or reject a pending contribution
+app.put('/api/contributions/status', verifyJWT, verifyCreator, async (req, res) => {
+    try {
+        const { contributionsCollection, notificationsCollection, usersCollection } = await getCollections();
+        const { contributionId, status } = req.body;
+
+        if (!contributionId || !status) {
+            return res.status(400).json({ message: 'Contribution ID and status required' });
+        }
+        if (!['approved', 'rejected'].includes(status)) {
+            return res.status(400).json({ message: 'Status must be "approved" or "rejected"' });
+        }
+
+        const contribution = await contributionsCollection.findOne({ _id: new ObjectId(contributionId) });
+        if (!contribution) return res.status(404).json({ error: 'Contribution not found' });
+
+        if (contribution.creatorEmail !== req.user.email) {
+            return res.status(403).json({ error: 'Not your contribution to review' });
+        }
+
+        await contributionsCollection.updateOne(
+            { _id: new ObjectId(contributionId) },
+            { $set: { status } }
+        );
+
+        await notificationsCollection.insertOne({
+            message: `Your contribution of ${contribution.contributionAmount} credits to "${contribution.campaignTitle}" has been ${status}.`,
+            toEmail: contribution.supporterEmail,
+            actionRoute: `/dashboard/supporter/my-contributions`,
+            createdAt: new Date(),
+        });
+
+        res.json({ message: `Contribution ${status}` });
+    } catch (err) {
+        res.status(500).json({ message: 'Failed to update contribution status' });
+    }
+});
+
 // Get my contributions (for supporter dashboard)
 app.get('/api/contributions/my', verifyJWT, async (req, res) => {
     try {
