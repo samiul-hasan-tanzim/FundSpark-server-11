@@ -100,6 +100,21 @@ app.post('/api/user/initialize-credits', verifyJWT, async (req, res) => {
     }
 });
 
+// Get public user info by email
+app.get('/api/user/public/:email', async (req, res) => {
+    try {
+        const { usersCollection } = await getCollections();
+        const user = await usersCollection.findOne(
+            { email: req.params.email },
+            { projection: { name: 1, email: 1, image: 1 } }
+        );
+        if (!user) return res.status(404).json({ error: 'User not found' });
+        res.json(user);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch user' });
+    }
+});
+
 // Get current user profile
 app.get('/api/user/profile', verifyJWT, async (req, res) => {
     try {
@@ -464,6 +479,15 @@ app.post('/api/campaigns/contribute', verifyJWT, verifySupporter, async (req, re
         const user = await usersCollection.findOne({ email: req.user.email });
         if (!user || user.credits < amount) {
             return res.status(400).json({ message: 'Insufficient credits' });
+        }
+
+        const existing = await contributionsCollection.findOne({
+            campaignId,
+            supporterEmail: req.user.email,
+            status: 'pending',
+        });
+        if (existing) {
+            return res.status(400).json({ message: 'You already have a pending contribution for this campaign' });
         }
 
         const contribution = {
