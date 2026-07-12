@@ -660,6 +660,20 @@ app.get('/api/admin/withdrawals/pending', verifyJWT, verifyAdmin, async (req, re
     }
 });
 
+// Admin: get all withdrawal requests (history)
+app.get('/api/admin/withdrawals/all', verifyJWT, verifyAdmin, async (req, res) => {
+    try {
+        const { withdrawalsCollection } = await getCollections();
+        const withdrawals = await withdrawalsCollection
+            .find({})
+            .sort({ createdAt: -1 })
+            .toArray();
+        res.json(withdrawals);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch withdrawals' });
+    }
+});
+
 // Admin: approve withdrawal
 app.put('/api/admin/withdrawals/approve', verifyJWT, verifyAdmin, async (req, res) => {
     try {
