@@ -229,6 +229,34 @@ app.put('/api/campaigns/update/:id', verifyJWT, verifyCreator, async (req, res) 
     }
 });
 
+// Creator: delete own campaign
+app.delete('/api/campaigns/delete/:id', verifyJWT, verifyCreator, async (req, res) => {
+    try {
+        const { campaignsCollection, contributionsCollection, usersCollection } = await getCollections();
+        const campaign = await campaignsCollection.findOne({ _id: new ObjectId(req.params.id) });
+        if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
+        if (campaign.creatorEmail !== req.user.email) return res.status(403).json({ error: 'Not your campaign' });
+
+        const approvedContributions = await contributionsCollection
+            .find({ campaignId: req.params.id, status: 'approved' })
+            .toArray();
+
+        for (const c of approvedContributions) {
+            await usersCollection.updateOne(
+                { email: c.supporterEmail },
+                { $inc: { credits: c.contributionAmount } }
+            );
+        }
+
+        await contributionsCollection.deleteMany({ campaignId: req.params.id });
+        await campaignsCollection.deleteOne({ _id: new ObjectId(req.params.id) });
+
+        res.json({ message: 'Campaign deleted. Approved supporters have been refunded.' });
+    } catch (err) {
+        res.status(500).json({ message: 'Failed to delete campaign' });
+    }
+});
+
 // Get creator's own campaigns
 app.get('/api/campaigns/my', verifyJWT, verifyCreator, async (req, res) => {
     try {
@@ -258,6 +286,25 @@ app.get('/api/creator/stats', verifyJWT, verifyCreator, async (req, res) => {
         res.json({ totalCampaigns, activeCampaigns, totalRaised });
     } catch (err) {
         res.status(500).json({ error: 'Failed to fetch creator stats' });
+    }
+});
+
+// Supporter dashboard stats
+app.get('/api/supporter/stats', verifyJWT, verifySupporter, async (req, res) => {
+    try {
+        const { contributionsCollection } = await getCollections();
+        const email = req.user.email;
+        const totalContributions = await contributionsCollection.countDocuments({ supporterEmail: email });
+        const pendingContributions = await contributionsCollection.countDocuments({ supporterEmail: email, status: 'pending' });
+        const approvedContributions = await contributionsCollection.countDocuments({ supporterEmail: email, status: 'approved' });
+        const creditsResult = await contributionsCollection.aggregate([
+            { $match: { supporterEmail: email, status: 'approved' } },
+            { $group: { _id: null, total: { $sum: '$contributionAmount' } } }
+        ]).toArray();
+        const totalCreditsContributed = creditsResult[0]?.total || 0;
+        res.json({ totalContributions, pendingContributions, approvedContributions, totalCreditsContributed });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch supporter stats' });
     }
 });
 
@@ -304,7 +351,7 @@ app.put('/api/contributions/status', verifyJWT, verifyCreator, async (req, res) 
         if (status === 'approved') {
             await campaignsCollection.updateOne(
                 { _id: new ObjectId(contribution.campaignId) },
-                { $inc: { raisedAmount: contribution.contributionAmount } }
+                { $inc: { raisedAmount: contribution.contributionAmount, backersCount: 1 } }
             );
         } else {
             await usersCollection.updateOne(
@@ -431,6 +478,21 @@ app.get('/api/contributions/my', verifyJWT, async (req, res) => {
         });
     } catch (err) {
         res.status(500).json({ error: 'Failed to fetch contributions' });
+    }
+});
+
+// Approved contributions for supporter dashboard
+app.get('/api/contributions/approved', verifyJWT, async (req, res) => {
+    try {
+        const { contributionsCollection } = await getCollections();
+        const email = req.user.email;
+        const contributions = await contributionsCollection
+            .find({ supporterEmail: email, status: 'approved' })
+            .sort({ createdAt: -1 })
+            .toArray();
+        res.json(contributions);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch approved contributions' });
     }
 });
 
@@ -682,6 +744,35 @@ app.delete('/api/admin/campaigns/delete', verifyJWT, verifyAdmin, async (req, re
         res.json({ message: 'Campaign deleted' });
     } catch (err) {
         res.status(500).json({ message: 'Failed to delete campaign' });
+    }
+});
+
+// Admin: suspend campaign
+app.put('/api/admin/campaigns/suspend', verifyJWT, verifyAdmin, async (req, res) => {
+    try {
+        const { campaignsCollection, notificationsCollection } = await getCollections();
+        const { campaignId } = req.body;
+        if (!campaignId) return res.status(400).json({ message: 'Campaign ID required' });
+
+        const campaign = await campaignsCollection.findOne({ _id: new ObjectId(campaignId) });
+        if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
+
+        await campaignsCollection.updateOne(
+            { _id: new ObjectId(campaignId) },
+            { $set: { status: 'suspended' } }
+        );
+
+        await notificationsCollection.insertOne({
+            message: `Your campaign "${campaign.title}" has been suspended by an admin.`,
+            toEmail: campaign.creatorEmail,
+            actionRoute: `/dashboard/creator`,
+            createdAt: new Date(),
+            read: false,
+        });
+
+        res.json({ message: 'Campaign suspended' });
+    } catch (err) {
+        res.status(500).json({ message: 'Failed to suspend campaign' });
     }
 });
 
